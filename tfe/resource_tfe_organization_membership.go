@@ -1,8 +1,10 @@
 package tfe
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	tfe "github.com/hashicorp/go-tfe"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
@@ -14,7 +16,7 @@ func resourceTFEOrganizationMembership() *schema.Resource {
 		Read:   resourceTFEOrganizationMembershipRead,
 		Delete: resourceTFEOrganizationMembershipDelete,
 		Importer: &schema.ResourceImporter{
-			StateContext: schema.ImportStatePassthroughContext,
+			StateContext: resourceTFEOrganizationMembershipImporter,
 		},
 
 		Schema: map[string]*schema.Schema{
@@ -107,4 +109,31 @@ func resourceTFEOrganizationMembershipDelete(d *schema.ResourceData, meta interf
 	}
 
 	return nil
+}
+
+func resourceTFEOrganizationMembershipImporter(ctx context.Context, d *schema.ResourceData, meta interface{}) ([]*schema.ResourceData, error) {
+	tfeClient := meta.(*tfe.Client)
+
+	// Import formats:
+	//  - <ORGANIZATION MEMBERSHIP ID>
+	//  - <organization name>/<user email>
+	s := strings.Split(d.Id(), "/")
+	if len(s) >= 3 {
+		return nil, fmt.Errorf(
+			"invalid organization membership input format: %s (expected <ORGANIZATION>/<USER EMAIL> or <ORGANIZATION MEMBERSHIP ID>)",
+			d.Id(),
+		)
+	} else if len(s) == 2 {
+		org := s[0]
+		email := s[1]
+		orgMembership, err := fetchOrganizationMemberByNameOrEmail(ctx, tfeClient, org, "", email)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"error retrieving user with email %s from organization %s: %w", email, org, err)
+		}
+
+		d.SetId(orgMembership.ID)
+	}
+
+	return []*schema.ResourceData{d}, nil
 }
